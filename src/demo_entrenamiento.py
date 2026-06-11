@@ -137,6 +137,21 @@ def calcular_pesos_de_clase(y_train, clases):
 #  sol por si 
 # -------------------------------------------------------
 
+# label smoothing: en lugar de entrenar con etiquetas duras [0,0,1,0,0,0,0]
+# usa algo como [0.014, 0.014, 0.9, 0.014, ...] -> el modelo no se confia tanto
+# esto ayuda porque FER-2013 tiene labels mal puestas en varios casos
+
+
+@tf.keras.utils.register_keras_serializable(package="Custom")
+def loss_con_smoothing(y_true, y_pred):
+    y_true_one_hot = keras.ops.one_hot(keras.ops.cast(y_true, "int32"), num_classes=NUM_CLASES)
+    return keras.losses.categorical_crossentropy(
+        y_true_one_hot,
+        y_pred,
+        from_logits=True,
+        label_smoothing=0.1
+    )
+
 def construir_modelo():
     print("\n[4/6] armando la red (esto no tarda, lo que tarda es el fit de abajo)")
 
@@ -184,17 +199,7 @@ def construir_modelo():
     modelo = keras.Model(inputs=entradas, outputs=salidas, name="CNN_Emociones")
 
 
-    # label smoothing: en lugar de entrenar con etiquetas duras [0,0,1,0,0,0,0]
-    # usa algo como [0.014, 0.014, 0.9, 0.014, ...] -> el modelo no se confia tanto
-    # esto ayuda porque FER-2013 tiene labels mal puestas en varios casos
-    def loss_con_smoothing(y_true, y_pred):
-        y_true_one_hot = keras.ops.one_hot(keras.ops.cast(y_true, "int32"), num_classes=NUM_CLASES)
-        return keras.losses.categorical_crossentropy(
-            y_true_one_hot,
-            y_pred,
-            from_logits=True,
-            label_smoothing=0.1
-        )
+
 
 
     modelo.compile(
