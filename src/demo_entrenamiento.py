@@ -1,14 +1,3 @@
-# -------------------------------------------------------
-# Demostración 2: Entrenamiento + Forward Pass
-# -------------------------------------------------------
-#  - Aplica el pipeline (Conv → ReLU → Pool) x 3 + Dense
-#    a TODAS las imágenes del dataset (no solo una).
-#  - Entrena el modelo durante N épocas.
-#  - Hace un forward pass de UNA imagen y muestra:
-#       * los logits (salida cruda antes de softmax)
-#       * las probabilidades (después de softmax)
-# -------------------------------------------------------
-
 # demo_entrenamiento.py
 # no tocar lo de abajo si sale algun error raro
 # (esto lo dejo aqui pq a mi tambien me tronaba, ni idea por que jaja)
