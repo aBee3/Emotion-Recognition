@@ -1,6 +1,6 @@
 # demo_entrenamiento.py
-# no tocar lo de abajo si sale algun error raro
-# (esto lo dejo aqui pq a mi tambien me tronaba, ni idea por que jaja)
+# no muevan esto de aqui arriba o se rompe todo (creo)
+# si truena al cargar, primero revisen que el venv este activado
 
 import os
 from pathlib import Path
@@ -17,26 +17,24 @@ import seaborn as sns
 
 
 # -------------------------------------------------------
-# config rapida - cambia aqui si quieres experimentar
+# config - aqui se le mueve si se quiere probar otra cosa
 # -------------------------------------------------------
 
 EPOCAS            = 20
 BATCH_SIZE        = 64
 LEARNING_RATE     = 0.0005
-FORZAR_REENTRENAMIENTO = False   # ponlo en True si el modelo guardado esta raro
+FORZAR_REENTRENAMIENTO = False   # True si el .keras guardado ya quedo viejo/raro
 INDICE_TEST       = 0
 NUM_CLASES        = 7
 TAM_IMAGEN        = 48
 
-color_default     = "#3b82f6"    # azul bonito, no cambiar
-tmp_ver          = "v2-beta"    # no borrar
-flag_debug       = False        # remanente de cuando estaba debuggeando, dejar
+color_default     = "#3b82f6"    # el azul de siempre, no cambiar
+tmp_ver          = "v2-beta"    # no borrar esto
+flag_debug       = False        # de cuando andaba debugueando, queda de recuerdo
 
-# variables que quede de pruebas anteriores, ya no se usan pero las dejo
-# por si las moscas (no borrar sin avisar al grupo)
-contador_random_pruebas = 0
-nombre_temp_cosa        = "sin_nombre_todavia"
-
+# cosas que iban a usarse y al final no, las dejo por si acaso
+modo_extra_no_usado   = "default"
+intentos_fallidos_log = []
 
 
 RAIZ           = Path(__file__).resolve().parent.parent
@@ -50,8 +48,8 @@ DIR_RESULTADOS = RAIZ / "results" / "entrenamiento"
 # -------------------------------------------------------
 
 def cargar_datos():
-    print("\n[1/6] cargando los npy... (puede tardar un poco)")
-    # si esto se queda pegado mucho rato seguramente es el disco, dont worry no explota 
+    print("\n[1/6] trayendo los .npy, aguanta tantito...")
+    # si tarda mucho probablemente es el disco lento, no es que se trabo
 
     X_train = np.load(DIR_DATOS / "X_train.npy")
     y_train = np.load(DIR_DATOS / "y_train.npy")
@@ -69,12 +67,12 @@ def cargar_datos():
 
 
 # -------------------------------------------------------
-# cuantas imagenes hay de cada emocion
+# que tan disparejas estan las clases
 # -------------------------------------------------------
 
 def mostrar_distribucion_clases(y_train, clases):
-    print("\n[2/6] a ver que tan parejo (o no) esta esto:")
-    print("  (spoiler: no estan balanceadas para nada)")
+    print("\n[2/6] viendo como esta el reparto de emociones:")
+    print("  (ya sabemos que va a estar bien chueco)")
 
     conteos = np.bincount(y_train, minlength=NUM_CLASES)
     total   = len(y_train)
@@ -87,17 +85,17 @@ def mostrar_distribucion_clases(y_train, clases):
     clase_minoritaria = clases[np.argmin(conteos)]
     ratio             = conteos.max() / conteos.min()
 
-    print(f"\n  la que mas abunda : {clase_mayoritaria}  ({conteos.max():,})")
-    print(f"  la que casi no sale: {clase_minoritaria}  ({conteos.min():,})")
-    print(f"  diferencia: {ratio:.1f}x  <- por eso hay que poner pesos")
+    print(f"\n  la mas repetida : {clase_mayoritaria}  ({conteos.max():,})")
+    print(f"  la mas escasa   : {clase_minoritaria}  ({conteos.min():,})")
+    print(f"  diferencia: {ratio:.1f}x  <- por eso los pesos de abajo")
 
 
 # -------------------------------------------------------
-# pesos de clase pa compensar el desbalance
+# pesos pa que la clase rara no quede ignorada
 # -------------------------------------------------------
 
 def calcular_pesos_de_clase(y_train, clases):
-    print("\n[3/6] sacando los pesos (formula de siempre, total / (clases * conteo))")
+    print("\n[3/6] calculando pesos (la formula de siempre)")
 
     conteos = np.bincount(y_train, minlength=NUM_CLASES)
     total   = len(y_train)
@@ -121,14 +119,13 @@ def calcular_pesos_de_clase(y_train, clases):
 
 
 # -------------------------------------------------------
-# armar el modelo - no mover la arquitectura pls
-# (si necesitas cambiar algo, copia el archivo y prueba aparte)
-#  sol por si 
+# armar el modelo - porfa no le muevan a la arquitectura
+# si quieren probar cosas, saquen copia y prueben aparte
 # -------------------------------------------------------
 
-# label smoothing: en lugar de entrenar con etiquetas duras [0,0,1,0,0,0,0]
-# usa algo como [0.014, 0.014, 0.9, 0.014, ...] -> el modelo no se confia tanto
-# esto ayuda porque FER-2013 tiene labels mal puestas en varios casos
+# nota rapida: con label smoothing en vez de etiquetas tipo [0,0,1,0,0,0,0]
+# se usa algo tipo [0.014,0.014,0.9,...] para que no se confie de mas,
+# porque FER-2013 trae varias etiquetas mal puestas
 
 
 @tf.keras.utils.register_keras_serializable(package="Custom")
@@ -141,8 +138,9 @@ def loss_con_smoothing(y_true, y_pred):
         label_smoothing=0.1
     )
 
+
 def construir_modelo():
-    print("\n[4/6] armando la red (esto no tarda, lo que tarda es el fit de abajo)")
+    print("\n[4/6] montando la arquitectura (rapido, lo lento es el fit)")
 
     entradas = keras.layers.Input(shape=(TAM_IMAGEN, TAM_IMAGEN, 1), name="imagen_entrada")
 
@@ -167,13 +165,13 @@ def construir_modelo():
     x = keras.layers.Activation("relu", name="relu3")(x)
     x = keras.layers.MaxPool2D(2, name="pool3")(x)
 
-    # bloque 4 - aqui ya ni idea que detecta exactamente, pero funciona
+    # bloque 4 - este ya es mas abstracto, dificil decir que detecta
     x = keras.layers.Conv2D(256, 3, padding="same", use_bias=False, name="conv4")(x)
     x = keras.layers.BatchNormalization(name="bn4")(x)
     x = keras.layers.Activation("relu", name="relu4")(x)
 
 
-    # GAP en vez de Flatten -> menos parametros, ya esta probado y jala mejor
+    # GAP en vez de Flatten -> menos params, ya se probo y rinde mejor
     x = keras.layers.GlobalAveragePooling2D(name="gap")(x)
 
     # cabeza clasificadora
@@ -182,12 +180,10 @@ def construir_modelo():
     x = keras.layers.Activation("relu", name="relu5")(x)
     x = keras.layers.Dropout(rate=0.5, name="dropout")(x)
 
-    # salida sin softmax (se aplica a mano mas abajo, para la demo)
+    # logits crudos, el softmax se hace a mano mas adelante pa la demo
     salidas = keras.layers.Dense(NUM_CLASES, name="logits")(x)
 
     modelo = keras.Model(inputs=entradas, outputs=salidas, name="CNN_Emociones")
-
-
 
 
 
@@ -204,17 +200,17 @@ def construir_modelo():
 
 
 # -------------------------------------------------------
-# entrenamiento - aqui es donde se va el tiempo no lo paren si se tarda jaja
+# entrenamiento - aqui se va el rato, dejenlo correr
 # -------------------------------------------------------
 
 def entrenar_modelo(modelo, X_train, y_train, X_test, y_test, pesos_clase):
-    print(f"\n[5/6] dale, a entrenar... agarra un cafe o algo")
+    print(f"\n[5/6] arrancando el entrenamiento, esto va pa largo")
     print(f"  epocas    : {EPOCAS}")
     print(f"  batch     : {BATCH_SIZE}")
     print(f"  lr inicial: {LEARNING_RATE}")
-    print(f"  pesos de clase si, label smoothing si, dropout 50%")
+    print(f"  con pesos de clase + label smoothing + dropout 50%")
 
-    # baja el lr a la mitad si val_loss no mejora en 3 epocas
+    # si val_loss se estanca 3 epocas, se reduce el lr a la mitad
     reducir_lr = keras.callbacks.ReduceLROnPlateau(
         monitor="val_loss",
         factor=0.5,
@@ -223,7 +219,7 @@ def entrenar_modelo(modelo, X_train, y_train, X_test, y_test, pesos_clase):
         verbose=1,
     )
 
-    # si en 7 epocas no mejora, paramos y nos quedamos con los mejores pesos
+    # si en 7 epocas no hay mejora, paro y regreso a los mejores pesos
     parada_temprana = keras.callbacks.EarlyStopping(
         monitor="val_loss",
         patience=7,
@@ -246,7 +242,7 @@ def entrenar_modelo(modelo, X_train, y_train, X_test, y_test, pesos_clase):
 
 
 # -------------------------------------------------------
-# grafica loss/accuracy - solo pa ver si ya chafeo o no
+# graficas de loss/acc - para checar si jalo o no
 # -------------------------------------------------------
 
 def guardar_curvas_de_entrenamiento(historial, ruta_guardado):
@@ -254,11 +250,11 @@ def guardar_curvas_de_entrenamiento(historial, ruta_guardado):
     eje_x         = list(range(1, epocas_reales + 1))
 
     fig, (ax_loss, ax_acc) = plt.subplots(1, 2, figsize=(13, 4))
-    fig.suptitle("a ver como se porto la red por epoca", fontsize=14, fontweight="bold")
+    fig.suptitle("avance del entrenamiento, epoca tras epoca", fontsize=14, fontweight="bold")
 
     ax_loss.plot(eje_x, historial.history["loss"],     "o-", label="Train",      color="#3b82f6")
     ax_loss.plot(eje_x, historial.history["val_loss"], "s--", label="Validacion", color="#ef4444")
-    ax_loss.set_title("loss\n(mientras mas pegado al piso mejor)")
+    ax_loss.set_title("loss\n(abajo es mejor)")
     ax_loss.set_xlabel("Epoca")
     ax_loss.set_ylabel("Loss (Cross-Entropy)")
     ax_loss.legend()
@@ -266,7 +262,7 @@ def guardar_curvas_de_entrenamiento(historial, ruta_guardado):
 
     ax_acc.plot(eje_x, [v * 100 for v in historial.history["accuracy"]],     "o-",  label="Train",      color="#3b82f6")
     ax_acc.plot(eje_x, [v * 100 for v in historial.history["val_accuracy"]], "s--", label="Validacion", color="#ef4444")
-    ax_acc.set_title("aciertos\n(en %)")
+    ax_acc.set_title("accuracy\n(arriba es mejor)")
     ax_acc.set_xlabel("Epoca")
     ax_acc.set_ylabel("Accuracy (%)")
     ax_acc.set_ylim(0, 100)
@@ -280,17 +276,17 @@ def guardar_curvas_de_entrenamiento(historial, ruta_guardado):
 
 
 # -------------------------------------------------------
-# matriz de confusion - para ver con que clases se confunde
+# matriz de confusion - donde se equivoca el modelo
 # -------------------------------------------------------
 
 def guardar_matriz_confusion(modelo, X_test, y_test, clases, ruta_guardado):
-    print("\n  haciendo la matriz, dame un seg...")
+    print("\n  armando la matriz de confusion, un momento...")
 
     logits_test = modelo.predict(X_test, verbose=0)
     y_pred      = np.argmax(logits_test, axis=1)
 
     matriz      = confusion_matrix(y_test, y_pred)
-    # normalizado por fila para que salgan porcentajes y no num crudos
+    # normalizado por fila -> porcentajes en lugar de conteos crudos
     matriz_norm = matriz.astype(float) / matriz.sum(axis=1, keepdims=True)
 
     nombres_clases = [str(c) for c in clases]
@@ -306,8 +302,8 @@ def guardar_matriz_confusion(modelo, X_test, y_test, clases, ruta_guardado):
         ax=ax,
         linewidths=0.5,
     )
-    ax.set_title("aqui se ve donde le atina y donde no\n"
-                 "(diagonal bien, lo demas mal)",
+    ax.set_title("aciertos y confusiones del modelo\n"
+                 "(la diagonal es lo bueno)",
                  fontsize=11)
     ax.set_xlabel("lo que predijo")
     ax.set_ylabel("lo que era en realidad")
@@ -316,19 +312,19 @@ def guardar_matriz_confusion(modelo, X_test, y_test, clases, ruta_guardado):
     plt.close(fig)
     print(f"  matriz guardada en: {ruta_guardado.relative_to(RAIZ)}")
 
-    print("\n  metricas por clase (si el F1 esta bajo de 0.5 ahi hay bronca):")
+    print("\n  metricas por clase (ojo si el F1 anda por debajo de 0.5):")
     reporte = classification_report(y_test, y_pred, target_names=nombres_clases, digits=3)
     for linea in reporte.split("\n"):
         print("  " + linea)
 
 
 # -------------------------------------------------------
-# forward pass manual - pa entender que hace la red por dentro
+# forward pass a mano - pa ver que hace la red paso a paso
 # -------------------------------------------------------
 
 def demo_forward_pass_completo(modelo, X_test, y_test, clases, indice):
     print("\n" + "=" * 65)
-    print("siguiendole los pasos a una imagen por toda la red")
+    print("acompañando una imagen por toda la red, paso por paso")
     print("=" * 65)
 
     imagen_batch  = X_test[indice : indice + 1]
@@ -342,19 +338,19 @@ def demo_forward_pass_completo(modelo, X_test, y_test, clases, indice):
     # ----------------------------------------------------------
     # etapa 1
     # ----------------------------------------------------------
-    print("\n--- etapa 1: lo que entra ---")
+    print("\n--- etapa 1: la entrada ---")
     print(f"  array de {TAM_IMAGEN}x{TAM_IMAGEN} = {TAM_IMAGEN*TAM_IMAGEN} valores entre 0 y 1")
     print(f"  shape: {imagen_batch.shape}")
     print(f"  rango: [{imagen_2d.min():.3f}, {imagen_2d.max():.3f}]")
     print(f"  pixel del centro (24,24): {imagen_2d[24, 24]:.3f}")
 
     # ----------------------------------------------------------
-    # etapa 2: que saca cada bloque convolucional
+    # etapa 2: salida de cada bloque conv
     # ----------------------------------------------------------
     nombres_capas_conv = ["pool1", "pool2", "pool3"]
     formas_esperadas   = ["(24, 24, 32)", "(12, 12, 64)", "(6, 6, 128)"]
 
-    print("\n--- etapa 2: lo que sueltan las convs ---")
+    print("\n--- etapa 2: las convs van soltando esto ---")
 
     activaciones_para_grafica = []
 
@@ -373,31 +369,31 @@ def demo_forward_pass_completo(modelo, X_test, y_test, clases, indice):
 
         print(f"\n  bloque {i+1} (despues de pool{i+1}):")
         print(f"    tensor: {mapa.shape[1]}x{mapa.shape[2]} px, {mapa.shape[3]} mapas")
-        print(f"    (esperado mas o menos: {forma_esperada})")
+        print(f"    (se esperaba algo como: {forma_esperada})")
         print(f"    media: {activacion_media:.4f}   max: {activacion_maxima:.4f}")
-        print(f"    canales con algo: {filtros_activos}/{mapa.shape[3]}  (lo demas lo mato el ReLU)")
+        print(f"    canales con algo: {filtros_activos}/{mapa.shape[3]}  (resto apagado por ReLU)")
 
     # ----------------------------------------------------------
-    # etapa 3: ya queda un vector plano
+    # etapa 3: vector tras GAP
     # ----------------------------------------------------------
-    print("\n--- etapa 3: GAP -> vector ---")
+    print("\n--- etapa 3: GAP -> vector plano ---")
     submodelo_gap = keras.Model(
         inputs=modelo.input,
         outputs=modelo.get_layer("gap").output
     )
     vector_gap = submodelo_gap.predict(imagen_batch, verbose=0)[0]
 
-    print(f"  el cubo (6,6,256) quedo en un vector de {len(vector_gap)}")
+    print(f"  el cubo (6,6,256) se aplano a un vector de {len(vector_gap)}")
     print(f"  rango: [{vector_gap.min():.4f}, {vector_gap.max():.4f}]")
     print(f"  media: {vector_gap.mean():.4f}")
     print(f"  posiciones > 0: {int((vector_gap > 0).sum())}/{len(vector_gap)}")
 
     # ----------------------------------------------------------
-    # etapa 4: logits crudos
+    # etapa 4: logits
     # ----------------------------------------------------------
-    print("\n--- etapa 4: logits (todavia no son probabilidades) ---")
-    print("  pueden salir negativos y no significan nada por si solos")
-    print("  el mas alto va ganando, pero falta el softmax")
+    print("\n--- etapa 4: logits crudos ---")
+    print("  todavia no son probabilidades, pueden ser negativos")
+    print("  el numero mas alto va adelante, falta el softmax")
 
     logits     = modelo.predict(imagen_batch, verbose=0)[0]
     suma_logits = logits.sum()
@@ -408,15 +404,15 @@ def demo_forward_pass_completo(modelo, X_test, y_test, clases, indice):
         barra = "█" * int(abs(logit) * 1.5)
         signo = "+" if logit >= 0 else ""
         print(f"  {str(clase):<12} {signo}{logit:>7.4f}  {barra}")
-    print(f"\n  suma de logits: {suma_logits:.4f}  (no significa nada en especifico)")
+    print(f"\n  suma de logits: {suma_logits:.4f}  (no tiene un significado directo)")
 
     # ----------------------------------------------------------
     # etapa 5: softmax
     # ----------------------------------------------------------
-    # Softmax: e^zi / sum(e^zj) para cada clase i
-    # con esto todo queda positivo y suma 1.0
-    # ojo: por el exponencial, una diferencia chiquita en logits
-    # puede hacer que una clase domine bastante a las demas
+    # softmax: e^zi / sum(e^zj) por cada clase
+    # asi todo queda positivo y suma exactamente 1.0
+    # cuidado: por la exponencial, una diferencia chica entre logits
+    # puede traducirse en una probabilidad mucho mayor para una clase
     print("\n--- etapa 5: softmax ---")
 
     exponenciales  = np.exp(logits)
@@ -430,29 +426,29 @@ def demo_forward_pass_completo(modelo, X_test, y_test, clases, indice):
         signo = "+" if logit >= 0 else ""
         print(f"  {str(clase):<12} {signo}{logit:>7.4f}   {exp_val:>9.4f}   {prob * 100:>5.1f}%  {barra}")
     print(f"\n  suma exp: {suma_exp:.4f}")
-    print(f"  suma probs: {probabilidades.sum():.6f}  (debe dar 1.0 si o si)")
+    print(f"  suma probs: {probabilidades.sum():.6f}  (tiene que dar 1.0)")
 
-    # resultado
+    # resultado final
     indice_predicho = int(np.argmax(probabilidades))
     nombre_predicho = str(clases[indice_predicho])
     confianza       = probabilidades[indice_predicho] * 100
 
-    print("\n--- y el ganador es... ---")
+    print("\n--- resultado final ---")
     print(f"  predijo: {nombre_predicho}  ({confianza:.1f}% seguro)")
     print(f"  era    : {nombre_real}")
 
     if indice_predicho == etiqueta_real:
-        print("  le atino")
+        print("  acerto")
     else:
         segunda_opcion = int(np.argsort(probabilidades)[-2])
-        print(f"  fallo")
+        print(f"  no le atino")
         print(f"  segunda opcion: {clases[segunda_opcion]} ({probabilidades[segunda_opcion]*100:.1f}%)")
 
     return imagen_2d, logits, probabilidades, exponenciales, nombre_predicho, nombre_real
 
 
 # -------------------------------------------------------
-# figura del forward pass completo - la parte bonita
+# figura grandota del forward pass
 # -------------------------------------------------------
 
 def guardar_visualizacion_forward_pass(
@@ -462,12 +458,12 @@ def guardar_visualizacion_forward_pass(
     nombres_clases = [str(c) for c in clases]
     es_correcto    = nombre_predicho == nombre_real
 
-    # usar para un titulo dinamico
-    subtitulo = "forward pass"
+    # iba a usarse para algo, al final quedo aqui sin uso
+    etiqueta_extra_pendiente = None
 
     fig = plt.figure(figsize=(20, 9))
     fig.suptitle(
-        f"que onda con la imagen '{nombre_real}'",
+        f"recorrido de la red con la imagen '{nombre_real}'",
         fontsize=14, fontweight="bold", y=1.01
     )
 
@@ -497,7 +493,7 @@ def guardar_visualizacion_forward_pass(
         fila_sup.axis("off")
 
         fila_inf.imshow(activacion[:, :, canal_min], cmap="gray")
-        fila_inf.set_title(f"canal menos activo (#{canal_min})\n<- ReLU lo apago", fontsize=8)
+        fila_inf.set_title(f"canal menos activo (#{canal_min})\n<- apagado por ReLU", fontsize=8)
         fila_inf.axis("off")
 
     # logits
@@ -523,7 +519,7 @@ def guardar_visualizacion_forward_pass(
     ax_probs.set_ylim(0, 100)
     ax_probs.set_ylabel("%", fontsize=8)
     color_titulo = "#16a34a" if es_correcto else "#dc2626"
-    estado       = "le atino" if es_correcto else "fallo"
+    estado       = "acerto" if es_correcto else "no le atino"
     ax_probs.set_title(
         f"softmax\npredijo: {nombre_predicho}  ({estado})",
         fontsize=9, color=color_titulo
@@ -537,7 +533,7 @@ def guardar_visualizacion_forward_pass(
 
 
 # -------------------------------------------------------
-# main - corre todo en orden
+# main - corre todo de jalon
 # -------------------------------------------------------
 
 def main():
@@ -553,7 +549,7 @@ def main():
     print(f"  LEARNING_RATE            = {LEARNING_RATE}")
     print(f"  FORZAR_REENTRENAMIENTO   = {FORZAR_REENTRENAMIENTO}")
     print(f"  INDICE_TEST              = {INDICE_TEST}")
-    print("\n(las constantes de arriba se cambian ahi mismo, no aqui abajo)")
+    print("\n(las constantes se cambian arriba, no aqui)")
 
     X_train, y_train, X_test, y_test, clases = cargar_datos()
 
@@ -564,8 +560,8 @@ def main():
     ruta_modelo = DIR_MODELOS / "emotion_cnn_v2.keras"
 
     if ruta_modelo.exists() and not FORZAR_REENTRENAMIENTO:
-        print(f"\n[4-5/6] ya hay un modelo guardado, cargando ese...")
-        print("  (si quieres que entrene de nuevo, pon FORZAR_REENTRENAMIENTO = True)")
+        print(f"\n[4-5/6] ya existe modelo guardado, lo cargo y ya")
+        print("  (para reentrenar de cero pon FORZAR_REENTRENAMIENTO = True)")
         modelo = keras.models.load_model(ruta_modelo)
         modelo.summary()
     else:
@@ -576,7 +572,7 @@ def main():
         print(f"\n  modelo guardado en: {ruta_modelo.relative_to(RAIZ)}")
         guardar_curvas_de_entrenamiento(historial, DIR_RESULTADOS / "curvas_entrenamiento.png")
 
-    print("\n[6/6] checando que tal en el test set:")
+    print("\n[6/6] resultados en el test set:")
     test_loss, test_acc = modelo.evaluate(X_test, y_test, verbose=0)
     print(f"  loss    : {test_loss:.4f}")
     print(f"  accuracy: {test_acc * 100:.2f}%")
@@ -588,7 +584,7 @@ def main():
         modelo, X_test, y_test, clases, INDICE_TEST
     )
 
-    # sacar activaciones de nuevo pa la figura
+    # otra vez las activaciones, ahora pa la figura
     activaciones_conv = []
     for nombre_capa in ["pool1", "pool2", "pool3"]:
         sub = keras.Model(inputs=modelo.input, outputs=modelo.get_layer(nombre_capa).output)
@@ -602,7 +598,7 @@ def main():
     )
 
     print("\n" + "=" * 65)
-    print("listo, esto fue lo que quedo:")
+    print("se generaron estos archivos:")
     print(f"  results/entrenamiento/curvas_entrenamiento.png")
     print(f"  results/entrenamiento/matriz_confusion.png")
     print(f"  results/entrenamiento/forward_pass_completo.png")
